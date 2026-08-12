@@ -1,9 +1,22 @@
 from pathlib import Path
 
+import pytest
+
 from aflux_bucket import FileAllocator
 
 
 class TestFileAllocator:
+    def test_nonempty_explicit_path_is_rejected_and_preserved(self, tmp_path: Path) -> None:
+        allocator_path = tmp_path / "allocator"
+        allocator_path.mkdir()
+        existing_file = allocator_path / "existing.txt"
+        existing_file.write_bytes(b"data")
+
+        with pytest.raises(ValueError, match="should be empty"):
+            FileAllocator(allocator_path)
+
+        assert existing_file.read_bytes() == b"data"
+
     def test_allocate_unique_paths(self, tmp_path: Path) -> None:
         allocator = FileAllocator(tmp_path)
         path1 = allocator.allocate("file.txt")

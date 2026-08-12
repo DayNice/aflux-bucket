@@ -62,13 +62,14 @@ def get_file_meta(
 
 @app.command
 def get_file_metas(
+    remote_prefix: str = "",
     *,
     bucket_name: str,
     bucket_prefix: str = "",
     anonymous: bool = False,
 ) -> None:
     s3_bucket = _get_s3_bucket(bucket_name, bucket_prefix, anonymous)
-    for file_meta in s3_bucket.get_file_metas():
+    for file_meta in s3_bucket.get_file_metas(remote_prefix):
         print(file_meta.model_dump_json())
 
 

@@ -128,7 +128,11 @@ class DirBucket(Bucket):
     @override
     def with_prefix(self, remote_prefix: str) -> "DirBucket":
         self._ensure_open()
-        return DirBucket(self._root_dir / remote_prefix, temp_dir=self._allocator.make_child())
+        child_root = (self._root_dir / remote_prefix).resolve()
+        if not child_root.is_relative_to(self._root_dir):
+            msg = f"Remote prefix escapes root directory: {remote_prefix!r}"
+            raise ValueError(msg)
+        return DirBucket(child_root, temp_dir=self._allocator.make_child())
 
     def clear_temp_dir(self) -> None:
         self._ensure_open()

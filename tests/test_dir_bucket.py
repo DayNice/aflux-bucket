@@ -62,8 +62,20 @@ class TestDirBucket:
             local_file = bucket.get_file("file.txt")
             assert local_file.exists()
 
-        assert temp_dir.exists()
-        assert not any(temp_dir.iterdir())
+        assert not temp_dir.exists()
+
+    def test_close_removes_temp_dir_and_rejects_use(self, tmp_path: Path) -> None:
+        root_dir = tmp_path / "root"
+        temp_dir = tmp_path / "temp"
+        bucket = DirBucket(root_dir, temp_dir=temp_dir)
+        bucket.put_bytes(b"data", "file.txt")
+
+        bucket.close()
+
+        assert not temp_dir.exists()
+        with pytest.raises(RuntimeError, match="closed"):
+            bucket.check_file_exists("file.txt")
+        bucket.close()
 
     def test_with_prefix(self, tmp_path: Path) -> None:
         bucket = DirBucket(tmp_path)

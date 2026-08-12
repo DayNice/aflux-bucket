@@ -19,6 +19,13 @@ class DirBucket(Bucket):
     ):
         self._root_dir = Path(root_dir).resolve()
         self._allocator = temp_dir if isinstance(temp_dir, FileAllocator) else FileAllocator(temp_dir)
+        self._closed = False
+
+    def _ensure_open(self) -> None:
+        if not self._closed:
+            return
+        msg = "DirBucket is closed."
+        raise RuntimeError(msg)
 
     def _get_remote_file(self, remote_path: str) -> Path:
         remote_file = (self._root_dir / remote_path).resolve()
@@ -36,11 +43,13 @@ class DirBucket(Bucket):
 
     @override
     def check_file_exists(self, remote_path: str) -> bool:
+        self._ensure_open()
         remote_file = self._get_remote_file(remote_path)
         return remote_file.is_file()
 
     @override
     def get_file_meta(self, remote_path: str) -> BucketFileMeta:
+        self._ensure_open()
         remote_file = self._validate_remote_file(remote_path)
         file_stat = remote_file.stat()
         size = file_stat.st_size
@@ -49,6 +58,7 @@ class DirBucket(Bucket):
 
     @override
     def get_file_metas(self, remote_prefix: str = "") -> Iterator[BucketFileMeta]:
+        self._ensure_open()
         search_dir = self._get_remote_file(remote_prefix)
         if search_dir != self._root_dir and not search_dir.is_dir():
             search_dir = search_dir.parent
@@ -73,6 +83,7 @@ class DirBucket(Bucket):
 
     @override
     def get_file(self, remote_path: str, *, refresh: bool = False) -> Path:
+        self._ensure_open()
         remote_file = self._validate_remote_file(remote_path)
         temp_file = self._allocator.allocate(remote_path)
         shutil.copy(remote_file, temp_file)
@@ -80,22 +91,26 @@ class DirBucket(Bucket):
 
     @override
     def get_bytes(self, remote_path: str, *, refresh: bool = False) -> bytes:
+        self._ensure_open()
         return self._validate_remote_file(remote_path).read_bytes()
 
     @override
     def put_file(self, local_file: str | Path, remote_path: str) -> None:
+        self._ensure_open()
         remote_file = self._get_remote_file(remote_path)
         remote_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(local_file, remote_file)
 
     @override
     def put_bytes(self, local_bytes: bytes, remote_path: str) -> None:
+        self._ensure_open()
         remote_file = self._get_remote_file(remote_path)
         remote_file.parent.mkdir(parents=True, exist_ok=True)
         remote_file.write_bytes(local_bytes)
 
     @override
     def delete_file(self, remote_path: str) -> None:
+        self._ensure_open()
         remote_file = self._get_remote_file(remote_path)
         if not remote_file.exists():
             return
@@ -112,12 +127,21 @@ class DirBucket(Bucket):
 
     @override
     def with_prefix(self, remote_prefix: str) -> "DirBucket":
+        self._ensure_open()
         return DirBucket(self._root_dir / remote_prefix, temp_dir=self._allocator.make_child())
 
     def clear_temp_dir(self) -> None:
+        self._ensure_open()
         self._allocator.clear()
 
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._allocator.close()
+
     def __enter__(self) -> Self:
+        self._ensure_open()
         return self
 
     def __exit__(
@@ -126,4 +150,4 @@ class DirBucket(Bucket):
         exc: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        self._allocator.clear()
+        self.close()

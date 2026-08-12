@@ -51,8 +51,49 @@ class TestS3Bucket:
             local_file = bucket.get_file(remote_path)
             assert local_file.exists()
 
-        assert tmp_path.exists()
-        assert not any(tmp_path.iterdir())
+        assert not tmp_path.exists()
+
+    def test_close_removes_temp_dir_and_rejects_use(self, s3_client, tmp_path: Path) -> None:
+        temp_dir = tmp_path / "temp"
+        bucket = S3Bucket("test-bucket", temp_dir=temp_dir, s3_client=s3_client)
+        bucket.put_bytes(b"data", "file.txt")
+
+        bucket.close()
+
+        assert not temp_dir.exists()
+        with pytest.raises(RuntimeError, match="closed"):
+            bucket.check_file_exists("file.txt")
+        bucket.close()
+
+    def test_close_waits_for_active_download(self, s3_client, tmp_path: Path, mocker: MockerFixture) -> None:
+        download_started = threading.Event()
+        allow_download = threading.Event()
+        old_download_file = s3_client.download_file
+
+        def mock_download_file(*args, **kwargs):
+            download_started.set()
+            allow_download.wait()
+            return old_download_file(*args, **kwargs)
+
+        mocker.patch.object(s3_client, "download_file", side_effect=mock_download_file)
+
+        temp_dir = tmp_path / "temp"
+        bucket = S3Bucket("test-bucket", temp_dir=temp_dir, s3_client=s3_client)
+        bucket.put_bytes(b"data", "file.txt")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            download_future = executor.submit(bucket.get_file, "file.txt")
+            assert download_started.wait(timeout=5)
+
+            close_future = executor.submit(bucket.close)
+            assert not close_future.done()
+
+            allow_download.set()
+            download_path = download_future.result()
+            assert download_path.parent == temp_dir
+            close_future.result()
+
+        assert not temp_dir.exists()
 
     def test_with_prefix(self, s3_client) -> None:
         bucket = S3Bucket("test-bucket", "prefix/", s3_client=s3_client)

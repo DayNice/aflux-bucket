@@ -59,10 +59,54 @@ class TestFileAllocator:
         child = allocator.make_child()
         assert child.path.is_relative_to(allocator.path)
 
-    def test_context_manager_clears(self, tmp_path: Path) -> None:
-        with FileAllocator(tmp_path) as allocator:
+    def test_close_removes_base_path(self, tmp_path: Path) -> None:
+        allocator_path = tmp_path / "allocator"
+        allocator = FileAllocator(allocator_path)
+        path = allocator.allocate("file.txt")
+        path.write_bytes(b"data")
+
+        allocator.close()
+
+        assert not path.exists()
+        assert not allocator_path.exists()
+
+    def test_close_is_idempotent(self, tmp_path: Path) -> None:
+        allocator = FileAllocator(tmp_path / "allocator")
+        allocator.close()
+
+        allocator.close()
+
+    def test_closed_allocator_rejects_use(self, tmp_path: Path) -> None:
+        allocator = FileAllocator(tmp_path / "allocator")
+        allocator.close()
+
+        with pytest.raises(RuntimeError, match="closed"):
+            allocator.allocate()
+        with pytest.raises(RuntimeError, match="closed"):
+            allocator.clear()
+        with pytest.raises(RuntimeError, match="closed"):
+            allocator.make_child()
+
+    def test_context_manager_closes(self, tmp_path: Path) -> None:
+        allocator_path = tmp_path / "allocator"
+        with FileAllocator(allocator_path) as allocator:
             path = allocator.allocate("file.txt")
             path.write_bytes(b"data")
             assert path.exists()
+
         assert not path.exists()
-        assert tmp_path.exists()
+        assert not allocator_path.exists()
+
+    def test_context_manager_closes_on_exception(self, tmp_path: Path) -> None:
+        allocator_path = tmp_path / "allocator"
+
+        with (
+            pytest.raises(RuntimeError, match="failure"),
+            FileAllocator(allocator_path) as allocator,
+        ):
+            path = allocator.allocate("file.txt")
+            path.write_bytes(b"data")
+            raise RuntimeError("failure")
+
+        assert not path.exists()
+        assert not allocator_path.exists()

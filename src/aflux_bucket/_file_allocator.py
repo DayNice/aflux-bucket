@@ -30,18 +30,33 @@ class FileAllocator:
             msg = "FileAllocator base path should be empty."
             raise ValueError(msg)
 
+        self._closed = False
+
     @property
     def path(self) -> Path:
         return self._path
 
+    def _ensure_open(self) -> None:
+        if not self._closed:
+            return
+        msg = "FileAllocator is closed."
+        raise RuntimeError(msg)
+
     def allocate(self, suffix_like: str | Path = "") -> Path:
         """Return a unique file path without creating the file."""
+        self._ensure_open()
         suffix = "".join(Path(suffix_like).suffixes)
         name = f"{uuid_utils.compat.uuid7().hex}{suffix}"
         return (self._path / name).resolve()
 
+    def make_child(self) -> "FileAllocator":
+        """Create a child allocator under the base path."""
+        self._ensure_open()
+        return FileAllocator(tempfile.mkdtemp(dir=self._path))
+
     def clear(self) -> None:
         """Clear contents while keeping the base path reusable."""
+        self._ensure_open()
         if not self._path.exists():
             return
         for item in self._path.iterdir():
@@ -50,9 +65,19 @@ class FileAllocator:
                 continue
             shutil.rmtree(item, ignore_errors=True)
 
-    def make_child(self) -> "FileAllocator":
-        """Create a child allocator under the base path."""
-        return FileAllocator(tempfile.mkdtemp(dir=self._path))
+    def close(self) -> None:
+        """Clear contents and remove the base path."""
+        if self._closed:
+            return
+
+        self.clear()
+        self._path.rmdir()
+
+        if self._path_finalizer is not None:
+            self._path_finalizer.detach()
+            self._path_finalizer = None
+
+        self._closed = True
 
     def __enter__(self) -> Self:
         return self
@@ -63,4 +88,4 @@ class FileAllocator:
         exc: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        self.clear()
+        self.close()

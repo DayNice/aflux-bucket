@@ -12,6 +12,10 @@ class TestDirBucket:
             bucket.get_file("../outside.txt")
         with pytest.raises(ValueError, match="escapes"):
             bucket.put_bytes(b"data", "../outside.txt")
+        with pytest.raises(ValueError, match="escapes"):
+            bucket.with_prefix("../outside")
+        with pytest.raises(ValueError, match="escapes"):
+            bucket.with_prefix(str(tmp_path.parent / "outside"))
 
     def test_put_and_get(self, tmp_path: Path) -> None:
         bucket = DirBucket(tmp_path)

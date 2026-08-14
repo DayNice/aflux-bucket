@@ -9,7 +9,7 @@ import pytest
 from moto import mock_aws
 from pytest_mock import MockerFixture
 
-from aflux_bucket import S3Bucket
+from aflux_bucket import FileAllocator, S3Bucket
 
 
 @pytest.fixture
@@ -44,56 +44,18 @@ class TestS3Bucket:
         s3_client.put_object(Bucket="test-bucket", Key="data.txt", Body=b"v2")
         assert bucket.get_bytes(remote_path) == b"v2"
 
-    def test_context_manager_cleanup(self, s3_client, tmp_path: Path) -> None:
-        with S3Bucket("test-bucket", temp_dir=tmp_path, s3_client=s3_client) as bucket:
-            remote_path = "temp.txt"
-            bucket.put_bytes(b"data", remote_path)
-            local_file = bucket.get_file(remote_path)
-            assert local_file.exists()
+    def test_external_file_allocator_is_not_closed(self, s3_client, tmp_path: Path) -> None:
+        allocator = FileAllocator(tmp_path / "temp")
+        bucket = S3Bucket("test-bucket", file_allocator=allocator, s3_client=s3_client)
 
-        assert not tmp_path.exists()
-
-    def test_close_removes_temp_dir_and_rejects_use(self, s3_client, tmp_path: Path) -> None:
-        temp_dir = tmp_path / "temp"
-        bucket = S3Bucket("test-bucket", temp_dir=temp_dir, s3_client=s3_client)
         bucket.put_bytes(b"data", "file.txt")
+        local_file = bucket.get_file("file.txt")
+        assert local_file.exists()
+        assert allocator.path.exists()
 
-        bucket.close()
+        allocator.close()
 
-        assert not temp_dir.exists()
-        with pytest.raises(RuntimeError, match="closed"):
-            bucket.check_file_exists("file.txt")
-        bucket.close()
-
-    def test_close_waits_for_active_download(self, s3_client, tmp_path: Path, mocker: MockerFixture) -> None:
-        download_started = threading.Event()
-        allow_download = threading.Event()
-        old_download_file = s3_client.download_file
-
-        def mock_download_file(*args, **kwargs):
-            download_started.set()
-            allow_download.wait()
-            return old_download_file(*args, **kwargs)
-
-        mocker.patch.object(s3_client, "download_file", side_effect=mock_download_file)
-
-        temp_dir = tmp_path / "temp"
-        bucket = S3Bucket("test-bucket", temp_dir=temp_dir, s3_client=s3_client)
-        bucket.put_bytes(b"data", "file.txt")
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            download_future = executor.submit(bucket.get_file, "file.txt")
-            assert download_started.wait(timeout=5)
-
-            close_future = executor.submit(bucket.close)
-            assert not close_future.done()
-
-            allow_download.set()
-            download_path = download_future.result()
-            assert download_path.parent == temp_dir
-            close_future.result()
-
-        assert not temp_dir.exists()
+        assert not allocator.path.exists()
 
     def test_with_prefix(self, s3_client) -> None:
         bucket = S3Bucket("test-bucket", "prefix/", s3_client=s3_client)

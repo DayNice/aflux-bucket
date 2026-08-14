@@ -9,12 +9,16 @@ import uuid_utils.compat
 
 
 class FileAllocator:
-    """Allocate temporary file paths.
+    """Allocate unique local paths beneath a directory.
 
-    The caller owns the paths returned by `allocate` and must delete them after use.
+    Files created at allocated paths belong to the caller.
+    The caller deletes them after use.
 
-    The base path must be empty when the allocator is created.
-    If omitted, a temporary path is created with best-effort finalizer cleanup.
+    When `path` is omitted, the allocator creates a temporary directory.
+    That directory has best-effort cleanup when the allocator is reclaimed.
+    Callers must not rely on that cleanup.
+
+    When `path` is supplied, its creator owns the directory and its cleanup.
     """
 
     def __init__(self, path: str | Path | None = None) -> None:
@@ -43,14 +47,20 @@ class FileAllocator:
         raise RuntimeError(msg)
 
     def allocate(self, suffix_like: str | Path = "") -> Path:
-        """Return a unique file path without creating the file."""
+        """Return a unique local path without creating a file.
+
+        The caller owns a file created at the returned path.
+        """
         self._ensure_open()
         suffix = "".join(Path(suffix_like).suffixes)
         name = f"{uuid_utils.compat.uuid7().hex}{suffix}"
         return (self._path / name).resolve()
 
     def make_child(self) -> "FileAllocator":
-        """Create a child allocator under the base path."""
+        """Create an independent allocator beneath this allocator's directory.
+
+        The parent allocator must remain alive while the child is used.
+        """
         self._ensure_open()
         return FileAllocator(tempfile.mkdtemp(dir=self._path))
 

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from aflux_bucket import DirBucket
+from aflux_bucket import DirBucket, FileAllocator
 
 
 class TestDirBucket:
@@ -51,31 +51,19 @@ class TestDirBucket:
         assert (tmp_path / "nested").exists()
         assert bucket.check_file_exists(path2)
 
-    def test_context_manager_cleanup(self, tmp_path: Path) -> None:
+    def test_external_file_allocator_is_not_closed(self, tmp_path: Path) -> None:
         root_dir = tmp_path / "root"
-        temp_dir = tmp_path / "temp"
-        root_dir.mkdir()
-        temp_dir.mkdir()
+        allocator = FileAllocator(tmp_path / "temp")
+        bucket = DirBucket(root_dir, file_allocator=allocator)
 
-        with DirBucket(root_dir, temp_dir=temp_dir) as bucket:
-            bucket.put_bytes(b"data", "file.txt")
-            local_file = bucket.get_file("file.txt")
-            assert local_file.exists()
-
-        assert not temp_dir.exists()
-
-    def test_close_removes_temp_dir_and_rejects_use(self, tmp_path: Path) -> None:
-        root_dir = tmp_path / "root"
-        temp_dir = tmp_path / "temp"
-        bucket = DirBucket(root_dir, temp_dir=temp_dir)
         bucket.put_bytes(b"data", "file.txt")
+        local_file = bucket.get_file("file.txt")
+        assert local_file.exists()
+        assert allocator.path.exists()
 
-        bucket.close()
+        allocator.close()
 
-        assert not temp_dir.exists()
-        with pytest.raises(RuntimeError, match="closed"):
-            bucket.check_file_exists("file.txt")
-        bucket.close()
+        assert not allocator.path.exists()
 
     def test_with_prefix(self, tmp_path: Path) -> None:
         bucket = DirBucket(tmp_path)

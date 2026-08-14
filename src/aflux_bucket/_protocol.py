@@ -8,6 +8,8 @@ from ._types import BucketFileMeta
 
 @runtime_checkable
 class Bucket(Protocol):
+    """Access a namespace of remote files."""
+
     @abstractmethod
     def check_file_exists(self, remote_path: str) -> bool: ...
 
@@ -15,10 +17,17 @@ class Bucket(Protocol):
     def get_file_meta(self, remote_path: str) -> BucketFileMeta: ...
 
     @abstractmethod
-    def get_file_metas(self, remote_prefix: str = "") -> Iterator[BucketFileMeta]: ...
+    def get_file_metas(self, remote_prefix: str = "") -> Iterator[BucketFileMeta]:
+        """Yield metadata for remote paths beginning with `remote_prefix`."""
+        ...
 
     @abstractmethod
-    def get_file(self, remote_path: str) -> Path: ...
+    def get_file(self, remote_path: str) -> Path:
+        """Return a new local copy of a remote file.
+
+        The caller owns and deletes the returned file.
+        """
+        ...
 
     @abstractmethod
     def get_bytes(self, remote_path: str) -> bytes: ...
@@ -33,4 +42,9 @@ class Bucket(Protocol):
     def delete_file(self, remote_path: str) -> None: ...
 
     @abstractmethod
-    def with_prefix(self, remote_prefix: str) -> "Bucket": ...
+    def with_prefix(self, remote_prefix: str) -> "Bucket":
+        """Return a child view rooted at `remote_prefix`.
+
+        The parent bucket must remain alive while the child is used.
+        """
+        ...
